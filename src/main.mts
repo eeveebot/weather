@@ -8,6 +8,7 @@ import yaml from 'js-yaml';
 import { NatsClient, log } from '@eeveebot/libeevee';
 import Database from 'better-sqlite3';
 import { fetch } from 'undici';
+import { colorizeWeather } from './utils/colorize.mjs';
 
 // Record module startup time for uptime tracking
 const moduleStartTime = Date.now();
@@ -366,15 +367,16 @@ async function fetchForecastData(
 /**
  * Format weather data for display
  * @param weatherData Raw weather data
+ * @param platform Platform identifier for colorization
  * @returns Formatted weather string
  */
-function formatWeatherData(weatherData: WeatherData): string {
+function formatWeatherData(weatherData: WeatherData, platform: string): string {
   try {
     const currently = weatherData.currently;
     const daily = weatherData.daily?.data?.[0];
 
     if (!currently) {
-      return 'Unable to parse weather data';
+      return colorizeWeather('Unable to parse weather data', platform);
     }
 
     const temperature = Math.round(currently.temperature || 0);
@@ -397,27 +399,30 @@ function formatWeatherData(weatherData: WeatherData): string {
       result += `, ${precipChance}% chance of precipitation`;
     }
 
-    return result;
+    return colorizeWeather(result, platform, temperature, windSpeed, humidity, 
+      daily?.precipProbability ? Math.round((daily.precipProbability || 0) * 100) : undefined, 
+      currently.summary);
   } catch (error) {
     log.error('Failed to format weather data', {
       producer: 'weather',
       error: error instanceof Error ? error.message : String(error),
     });
-    return 'Unable to format weather data';
+    return colorizeWeather('Unable to format weather data', platform);
   }
 }
 
 /**
  * Format forecast data for display
  * @param forecastData Raw forecast data
+ * @param platform Platform identifier for colorization
  * @returns Formatted forecast string
  */
-function formatForecastData(forecastData: ForecastData): string {
+function formatForecastData(forecastData: ForecastData, platform: string): string {
   try {
     const dailyData = forecastData.daily?.data;
 
     if (!dailyData || dailyData.length === 0) {
-      return 'Unable to parse forecast data';
+      return colorizeWeather('Unable to parse forecast data', platform);
     }
 
     // Get the next 5 days of forecast data
@@ -440,17 +445,19 @@ function formatForecastData(forecastData: ForecastData): string {
           result += `, ${precipChance}% rain`;
         }
 
-        return result;
+        // For forecast, we'll colorize each day based on the high temperature
+        return colorizeWeather(result, platform, high, undefined, undefined, precipChance, day.icon);
       })
       .filter((day) => day !== '');
 
-    return formattedDays.join(' | ');
+    const result = formattedDays.join(' | ');
+    return colorizeWeather(result, platform);
   } catch (error) {
     log.error('Failed to format forecast data', {
       producer: 'weather',
       error: error instanceof Error ? error.message : String(error),
     });
-    return 'Unable to format forecast data';
+    return colorizeWeather('Unable to format forecast data', platform);
   }
 }
 
@@ -630,7 +637,7 @@ const weatherCommandSub = nats.subscribe(
       }
 
       // Format and send weather data
-      const formattedWeather = formatWeatherData(weatherData);
+      const formattedWeather = formatWeatherData(weatherData, data.platform);
 
       const response = {
         channel: data.channel,
@@ -747,7 +754,7 @@ const forecastCommandSub = nats.subscribe(
       }
 
       // Format and send forecast data
-      const formattedForecast = formatForecastData(forecastData);
+      const formattedForecast = formatForecastData(forecastData, data.platform);
 
       const response = {
         channel: data.channel,
