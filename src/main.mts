@@ -383,33 +383,62 @@ function formatWeatherData(weatherData: WeatherData, platform: string): string {
     const summary = currently.summary || 'Unknown conditions';
     const humidity = Math.round((currently.humidity || 0) * 100);
     const windSpeed = Math.round(currently.windSpeed || 0);
+    const precipProbability = daily?.precipProbability || 0;
+    const precipChance = Math.round(precipProbability * 100);
 
-    let result = `${summary}, ${temperature}°F`;
+    // Colorize each part separately for more varied colors
+    const coloredSummary = colorizeWeather(
+      summary,
+      platform,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      currently.summary
+    );
+    const coloredTemp = colorizeWeather(
+      `${temperature}°F`,
+      platform,
+      temperature
+    );
+
+    // Build the result with separators
+    let result = `${coloredSummary}, ${coloredTemp}`;
 
     if (humidity > 0) {
-      result += `, ${humidity}% humidity`;
+      const coloredHumidity = colorizeWeather(
+        `${humidity}% humidity`,
+        platform,
+        undefined,
+        undefined,
+        humidity
+      );
+      result += `, ${coloredHumidity}`;
     }
 
     if (windSpeed > 0) {
-      result += `, ${windSpeed} mph wind`;
+      const coloredWind = colorizeWeather(
+        `${windSpeed} mph wind`,
+        platform,
+        undefined,
+        windSpeed
+      );
+      result += `, ${coloredWind}`;
     }
 
-    if (daily?.precipProbability && daily.precipProbability > 0) {
-      const precipChance = Math.round((daily.precipProbability || 0) * 100);
-      result += `, ${precipChance}% chance of precipitation`;
+    if (precipProbability > 0) {
+      const coloredPrecip = colorizeWeather(
+        `${precipChance}% chance of precipitation`,
+        platform,
+        undefined,
+        undefined,
+        undefined,
+        precipChance
+      );
+      result += `, ${coloredPrecip}`;
     }
 
-    return colorizeWeather(
-      result,
-      platform,
-      temperature,
-      windSpeed,
-      humidity,
-      daily?.precipProbability
-        ? Math.round((daily.precipProbability || 0) * 100)
-        : undefined,
-      currently.summary
-    );
+    return result;
   } catch (error) {
     log.error('Failed to format weather data', {
       producer: 'weather',
