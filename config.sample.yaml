@@ -1,7 +1,0 @@
-# Weather module configuration
-
-ratelimit:
-  mode: drop
-  level: user
-  limit: 5
-  interval: 1m
