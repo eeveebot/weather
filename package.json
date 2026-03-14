@@ -1,0 +1,40 @@
+{
+  "name": "@eeveebot/weather",
+  "version": "0.4.27",
+  "description": "the eevee weather module",
+  "keywords": [
+    "eevee"
+  ],
+  "main": "dist/main.mjs",
+  "engines": {
+    "node": ">=24.0.0"
+  },
+  "scripts": {
+    "test": "npx eslint src/",
+    "build": "npm run test && npx tsc",
+    "dev": "npm run build && node dist/main.mjs",
+    "update-libraries": "npm install --save @eeveebot/libeevee@latest"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "^7.6.13",
+    "@types/js-yaml": "^4.0.9",
+    "@types/node": "^18",
+    "@types/ws": "^8.18.1",
+    "@typescript-eslint/eslint-plugin": "^8.57.0",
+    "@typescript-eslint/parser": "^8.57.0",
+    "eslint": "^9.39.2",
+    "globals": "^17.4.0",
+    "prettier": "^3.7.4",
+    "typescript": "^5.9.3"
+  },
+  "dependencies": {
+    "@eeveebot/libeevee": "^1.2.11",
+    "better-sqlite3": "^12.8.0",
+    "irc-framework": "^4.14.0",
+    "js-yaml": "^4.1.1",
+    "mathjs": "^15.1.1",
+    "nats": "^2.29.3",
+    "undici": "^7.24.1",
+    "winston": "^3.17.0"
+  }
+}
