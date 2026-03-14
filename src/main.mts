@@ -574,7 +574,11 @@ const weatherCommandSub = nats.subscribe(
       });
 
       // Extract location from the command (optional)
-      const locationSearch = data.text.trim();
+      // Strip the command name from the text to get just the location
+      const locationSearch = data.text
+        .trim()
+        .replace(/^weather\s*/i, '')
+        .trim();
 
       let coordinates = null;
       let displayLocation = '';
@@ -687,7 +691,11 @@ const forecastCommandSub = nats.subscribe(
       });
 
       // Extract location from the command (optional)
-      const locationSearch = data.text.trim();
+      // Strip the command name from the text to get just the location
+      const locationSearch = data.text
+        .trim()
+        .replace(/^(forecast|fivecast)\s*/i, '')
+        .trim();
 
       let coordinates = null;
       let displayLocation = '';
