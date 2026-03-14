@@ -140,6 +140,16 @@ try {
     )
   `);
 
+  // Create table for user unit preferences
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS user_units (
+      user_ident TEXT PRIMARY KEY,
+      units TEXT NOT NULL DEFAULT 'imperial',
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    )
+  `);
+
   log.info('Initialized weather database', {
     producer: 'weather',
     dbPath,
@@ -163,6 +173,18 @@ const setUserLocationStmt = db.prepare(`
     search_string = excluded.search_string,
     latitude = excluded.latitude,
     longitude = excluded.longitude,
+    updated_at = CURRENT_TIMESTAMP
+`);
+
+// Prepared statements for user unit preferences
+const getUserUnitsStmt = db.prepare(
+  'SELECT units FROM user_units WHERE user_ident = ?'
+);
+const setUserUnitsStmt = db.prepare(`
+  INSERT INTO user_units (user_ident, units) 
+  VALUES (?, ?)
+  ON CONFLICT(user_ident) DO UPDATE SET 
+    units = excluded.units,
     updated_at = CURRENT_TIMESTAMP
 `);
 
@@ -223,6 +245,45 @@ function setUserLocation(
 }
 
 /**
+ * Get stored unit preference for a user
+ * @param userIdent User identifier
+ * @returns Unit preference ('metric' or 'imperial') or null if not found
+ */
+function getUserUnits(userIdent: string): 'metric' | 'imperial' | null {
+  try {
+    const row = getUserUnitsStmt.get(userIdent) as
+      | { units: string }
+      | undefined;
+    return row ? (row.units as 'metric' | 'imperial') : null;
+  } catch (error) {
+    log.error('Failed to get user units', {
+      producer: 'weather',
+      userIdent,
+      error: error instanceof Error ? error.message : String(error),
+    });
+    return null;
+  }
+}
+
+/**
+ * Set unit preference for a user
+ * @param userIdent User identifier
+ * @param units Unit preference ('metric' or 'imperial')
+ */
+function setUserUnits(userIdent: string, units: 'metric' | 'imperial'): void {
+  try {
+    setUserUnitsStmt.run(userIdent, units);
+  } catch (error) {
+    log.error('Failed to set user units', {
+      producer: 'weather',
+      userIdent,
+      units,
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
+}
+
+/**
  * Convert location search string to coordinates using a geocoding service
  * @param location Location search string
  * @returns Latitude and longitude or null if failed
@@ -267,6 +328,7 @@ async function zipcodeToCoordinates(
  * Fetch weather data from Pirate Weather API
  * @param lat Latitude
  * @param lon Longitude
+ * @param units Units for weather data ('us' for imperial, 'si' for metric)
  * @returns Weather data or null if failed
  */
 interface WeatherData {
@@ -298,7 +360,8 @@ interface ForecastData {
 
 async function fetchWeatherData(
   lat: number,
-  lon: number
+  lon: number,
+  units: 'us' | 'si' = 'us'
 ): Promise<WeatherData | null> {
   try {
     const apiKey = process.env.PIRATE_WEATHER_API_KEY;
@@ -307,7 +370,7 @@ async function fetchWeatherData(
     }
 
     const response = await fetch(
-      `https://api.pirateweather.net/forecast/${apiKey}/${lat},${lon}?units=us`
+      `https://api.pirateweather.net/forecast/${apiKey}/${lat},${lon}?units=${units}`
     );
 
     if (!response.ok) {
@@ -321,6 +384,7 @@ async function fetchWeatherData(
       producer: 'weather',
       lat,
       lon,
+      units,
       error: error instanceof Error ? error.message : String(error),
     });
     return null;
@@ -331,11 +395,13 @@ async function fetchWeatherData(
  * Fetch forecast data from Pirate Weather API
  * @param lat Latitude
  * @param lon Longitude
+ * @param units Units for weather data ('us' for imperial, 'si' for metric)
  * @returns Forecast data or null if failed
  */
 async function fetchForecastData(
   lat: number,
-  lon: number
+  lon: number,
+  units: 'us' | 'si' = 'us'
 ): Promise<ForecastData | null> {
   try {
     const apiKey = process.env.PIRATE_WEATHER_API_KEY;
@@ -344,7 +410,7 @@ async function fetchForecastData(
     }
 
     const response = await fetch(
-      `https://api.pirateweather.net/forecast/${apiKey}/${lat},${lon}?units=us&extend=hourly`
+      `https://api.pirateweather.net/forecast/${apiKey}/${lat},${lon}?units=${units}&extend=hourly`
     );
 
     if (!response.ok) {
@@ -358,6 +424,7 @@ async function fetchForecastData(
       producer: 'weather',
       lat,
       lon,
+      units,
       error: error instanceof Error ? error.message : String(error),
     });
     return null;
@@ -368,9 +435,14 @@ async function fetchForecastData(
  * Format weather data for display
  * @param weatherData Raw weather data
  * @param platform Platform identifier for colorization
+ * @param units Units for weather data ('metric' or 'imperial')
  * @returns Formatted weather string
  */
-function formatWeatherData(weatherData: WeatherData, platform: string): string {
+function formatWeatherData(
+  weatherData: WeatherData,
+  platform: string,
+  units: 'metric' | 'imperial' = 'imperial'
+): string {
   try {
     const currently = weatherData.currently;
     const daily = weatherData.daily?.data?.[0];
@@ -386,6 +458,20 @@ function formatWeatherData(weatherData: WeatherData, platform: string): string {
     const precipProbability = daily?.precipProbability || 0;
     const precipChance = Math.round(precipProbability * 100);
 
+    // Determine unit symbols
+    const tempUnit = units === 'metric' ? '°C' : '°F';
+    const speedUnit = units === 'metric' ? 'km/h' : 'mph';
+
+    // Convert temperature if needed
+    const displayTemp =
+      units === 'metric'
+        ? Math.round(((temperature - 32) * 5) / 9)
+        : temperature;
+
+    // Convert wind speed if needed
+    const displayWindSpeed =
+      units === 'metric' ? Math.round(windSpeed * 1.60934) : windSpeed;
+
     // Colorize each part separately for more varied colors
     const coloredSummary = colorizeWeather(
       summary,
@@ -397,9 +483,9 @@ function formatWeatherData(weatherData: WeatherData, platform: string): string {
       currently.summary
     );
     const coloredTemp = colorizeWeather(
-      `${temperature}°F`,
+      `${displayTemp}${tempUnit}`,
       platform,
-      temperature
+      displayTemp
     );
 
     // Build the result with separators
@@ -416,12 +502,12 @@ function formatWeatherData(weatherData: WeatherData, platform: string): string {
       result += `, ${coloredHumidity}`;
     }
 
-    if (windSpeed > 0) {
+    if (displayWindSpeed > 0) {
       const coloredWind = colorizeWeather(
-        `${windSpeed} mph wind`,
+        `${displayWindSpeed} ${speedUnit} wind`,
         platform,
         undefined,
-        windSpeed
+        displayWindSpeed
       );
       result += `, ${coloredWind}`;
     }
@@ -452,11 +538,13 @@ function formatWeatherData(weatherData: WeatherData, platform: string): string {
  * Format forecast data for display
  * @param forecastData Raw forecast data
  * @param platform Platform identifier for colorization
+ * @param units Units for weather data ('metric' or 'imperial')
  * @returns Formatted forecast string
  */
 function formatForecastData(
   forecastData: ForecastData,
-  platform: string
+  platform: string,
+  units: 'metric' | 'imperial' = 'imperial'
 ): string {
   try {
     const dailyData = forecastData.daily?.data;
@@ -468,6 +556,9 @@ function formatForecastData(
     // Get the next 5 days of forecast data
     const forecastDays = dailyData.slice(0, 5);
 
+    // Determine unit symbols
+    const tempUnit = units === 'metric' ? '°C' : '°F';
+
     const formattedDays = forecastDays
       .map((day) => {
         if (!day.time) return '';
@@ -476,10 +567,17 @@ function formatForecastData(
         const dayName = date.toLocaleDateString('en-US', { weekday: 'short' });
         const high = Math.round(day.temperatureHigh || 0);
         const low = Math.round(day.temperatureLow || 0);
+
+        // Convert temperatures if needed
+        const displayHigh =
+          units === 'metric' ? Math.round(((high - 32) * 5) / 9) : high;
+        const displayLow =
+          units === 'metric' ? Math.round(((low - 32) * 5) / 9) : low;
+
         const summary = day.summary ? day.summary.replace(/\.$/, '') : '';
         const precipChance = Math.round((day.precipProbability || 0) * 100);
 
-        let result = `${dayName}: ${summary}, High: ${high}°F, Low: ${low}°F`;
+        let result = `${dayName}: ${summary}, High: ${displayHigh}${tempUnit}, Low: ${displayLow}${tempUnit}`;
 
         if (precipChance > 0) {
           result += `, ${precipChance}% rain`;
@@ -489,7 +587,7 @@ function formatForecastData(
         return colorizeWeather(
           result,
           platform,
-          high,
+          displayHigh,
           undefined,
           undefined,
           precipChance,
@@ -629,11 +727,40 @@ const weatherCommandSub = nats.subscribe(
       });
 
       // Extract location from the command (optional)
-      // Strip the command name from the text to get just the location
-      const locationSearch = data.text
+      // Strip the command name from the text to get just the location and flags
+      const commandText = data.text
         .trim()
         .replace(/^weather\s*/i, '')
         .trim();
+
+      // Parse flags for unit conversion
+      let units: 'metric' | 'imperial' = 'imperial'; // default to imperial
+      let locationSearch = commandText;
+
+      // Check for -c flag (Celsius/metric)
+      if (commandText.includes('-c')) {
+        units = 'metric';
+        locationSearch = commandText.replace('-c', '').trim();
+      }
+      // Check for -f flag (Fahrenheit/imperial)
+      else if (commandText.includes('-f')) {
+        units = 'imperial';
+        locationSearch = commandText.replace('-f', '').trim();
+      }
+      // If no flags, check user's stored preference
+      else {
+        const userIdent = `${data.platform}:${data.network}:${data.user}`;
+        const storedUnits = getUserUnits(userIdent);
+        if (storedUnits) {
+          units = storedUnits;
+        }
+      }
+
+      // If flags were used, save the preference
+      if (commandText !== locationSearch) {
+        const userIdent = `${data.platform}:${data.network}:${data.user}`;
+        setUserUnits(userIdent, units);
+      }
 
       let coordinates = null;
       let displayLocation = '';
@@ -672,10 +799,14 @@ const weatherCommandSub = nats.subscribe(
         }
       }
 
+      // Determine API units (Pirate Weather uses 'us' for imperial, 'si' for metric)
+      const apiUnits = units === 'metric' ? 'si' : 'us';
+
       // Fetch weather data
       const weatherData = await fetchWeatherData(
         coordinates.lat,
-        coordinates.lon
+        coordinates.lon,
+        apiUnits
       );
       if (!weatherData) {
         sendErrorResponse(
@@ -685,7 +816,11 @@ const weatherCommandSub = nats.subscribe(
       }
 
       // Format and send weather data
-      const formattedWeather = formatWeatherData(weatherData, data.platform);
+      const formattedWeather = formatWeatherData(
+        weatherData,
+        data.platform,
+        units
+      );
 
       const response = {
         channel: data.channel,
@@ -746,11 +881,40 @@ const forecastCommandSub = nats.subscribe(
       });
 
       // Extract location from the command (optional)
-      // Strip the command name from the text to get just the location
-      const locationSearch = data.text
+      // Strip the command name from the text to get just the location and flags
+      const commandText = data.text
         .trim()
         .replace(/^(forecast|fivecast)\s*/i, '')
         .trim();
+
+      // Parse flags for unit conversion
+      let units: 'metric' | 'imperial' = 'imperial'; // default to imperial
+      let locationSearch = commandText;
+
+      // Check for -c flag (Celsius/metric)
+      if (commandText.includes('-c')) {
+        units = 'metric';
+        locationSearch = commandText.replace('-c', '').trim();
+      }
+      // Check for -f flag (Fahrenheit/imperial)
+      else if (commandText.includes('-f')) {
+        units = 'imperial';
+        locationSearch = commandText.replace('-f', '').trim();
+      }
+      // If no flags, check user's stored preference
+      else {
+        const userIdent = `${data.platform}:${data.network}:${data.user}`;
+        const storedUnits = getUserUnits(userIdent);
+        if (storedUnits) {
+          units = storedUnits;
+        }
+      }
+
+      // If flags were used, save the preference
+      if (commandText !== locationSearch) {
+        const userIdent = `${data.platform}:${data.network}:${data.user}`;
+        setUserUnits(userIdent, units);
+      }
 
       let coordinates = null;
       let displayLocation = '';
@@ -789,10 +953,14 @@ const forecastCommandSub = nats.subscribe(
         }
       }
 
+      // Determine API units (Pirate Weather uses 'us' for imperial, 'si' for metric)
+      const apiUnits = units === 'metric' ? 'si' : 'us';
+
       // Fetch forecast data
       const forecastData = await fetchForecastData(
         coordinates.lat,
-        coordinates.lon
+        coordinates.lon,
+        apiUnits
       );
       if (!forecastData) {
         sendErrorResponse(
@@ -802,7 +970,11 @@ const forecastCommandSub = nats.subscribe(
       }
 
       // Format and send forecast data
-      const formattedForecast = formatForecastData(forecastData, data.platform);
+      const formattedForecast = formatForecastData(
+        forecastData,
+        data.platform,
+        units
+      );
 
       const response = {
         channel: data.channel,
@@ -913,6 +1085,16 @@ const weatherHelp = [
         required: false,
         descr: 'Any location string (address, city, postal code, etc.)',
       },
+      {
+        param: '-c',
+        required: false,
+        descr: 'Use Celsius/metric units',
+      },
+      {
+        param: '-f',
+        required: false,
+        descr: 'Use Fahrenheit/imperial units',
+      },
     ],
   },
   {
@@ -925,6 +1107,16 @@ const weatherHelp = [
         param: '[location]',
         required: false,
         descr: 'Any location string (address, city, postal code, etc.)',
+      },
+      {
+        param: '-c',
+        required: false,
+        descr: 'Use Celsius/metric units',
+      },
+      {
+        param: '-f',
+        required: false,
+        descr: 'Use Fahrenheit/imperial units',
       },
     ],
   },
