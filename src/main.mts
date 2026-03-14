@@ -399,9 +399,17 @@ function formatWeatherData(weatherData: WeatherData, platform: string): string {
       result += `, ${precipChance}% chance of precipitation`;
     }
 
-    return colorizeWeather(result, platform, temperature, windSpeed, humidity, 
-      daily?.precipProbability ? Math.round((daily.precipProbability || 0) * 100) : undefined, 
-      currently.summary);
+    return colorizeWeather(
+      result,
+      platform,
+      temperature,
+      windSpeed,
+      humidity,
+      daily?.precipProbability
+        ? Math.round((daily.precipProbability || 0) * 100)
+        : undefined,
+      currently.summary
+    );
   } catch (error) {
     log.error('Failed to format weather data', {
       producer: 'weather',
@@ -417,7 +425,10 @@ function formatWeatherData(weatherData: WeatherData, platform: string): string {
  * @param platform Platform identifier for colorization
  * @returns Formatted forecast string
  */
-function formatForecastData(forecastData: ForecastData, platform: string): string {
+function formatForecastData(
+  forecastData: ForecastData,
+  platform: string
+): string {
   try {
     const dailyData = forecastData.daily?.data;
 
@@ -446,7 +457,15 @@ function formatForecastData(forecastData: ForecastData, platform: string): strin
         }
 
         // For forecast, we'll colorize each day based on the high temperature
-        return colorizeWeather(result, platform, high, undefined, undefined, precipChance, day.icon);
+        return colorizeWeather(
+          result,
+          platform,
+          high,
+          undefined,
+          undefined,
+          precipChance,
+          day.icon
+        );
       })
       .filter((day) => day !== '');
 
