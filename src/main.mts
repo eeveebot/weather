@@ -247,14 +247,16 @@ function setUserLocation(
 /**
  * Get stored unit preference for a user
  * @param userIdent User identifier
- * @returns Unit preference ('metric' or 'imperial') or null if not found
+ * @returns Unit preference ('metric', 'imperial', or 'kelvin') or null if not found
  */
-function getUserUnits(userIdent: string): 'metric' | 'imperial' | null {
+function getUserUnits(
+  userIdent: string
+): 'metric' | 'imperial' | 'kelvin' | null {
   try {
     const row = getUserUnitsStmt.get(userIdent) as
       | { units: string }
       | undefined;
-    return row ? (row.units as 'metric' | 'imperial') : null;
+    return row ? (row.units as 'metric' | 'imperial' | 'kelvin') : null;
   } catch (error) {
     log.error('Failed to get user units', {
       producer: 'weather',
@@ -268,9 +270,12 @@ function getUserUnits(userIdent: string): 'metric' | 'imperial' | null {
 /**
  * Set unit preference for a user
  * @param userIdent User identifier
- * @param units Unit preference ('metric' or 'imperial')
+ * @param units Unit preference ('metric', 'imperial', or 'kelvin')
  */
-function setUserUnits(userIdent: string, units: 'metric' | 'imperial'): void {
+function setUserUnits(
+  userIdent: string,
+  units: 'metric' | 'imperial' | 'kelvin'
+): void {
   try {
     setUserUnitsStmt.run(userIdent, units);
   } catch (error) {
@@ -441,7 +446,7 @@ async function fetchForecastData(
 function formatWeatherData(
   weatherData: WeatherData,
   platform: string,
-  units: 'metric' | 'imperial' = 'imperial'
+  units: 'metric' | 'imperial' | 'kelvin' = 'imperial'
 ): string {
   try {
     const currently = weatherData.currently;
@@ -459,18 +464,23 @@ function formatWeatherData(
     const precipChance = Math.round(precipProbability * 100);
 
     // Determine unit symbols
-    const tempUnit = units === 'metric' ? '°C' : '°F';
-    const speedUnit = units === 'metric' ? 'km/h' : 'mph';
+    const tempUnit =
+      units === 'metric' ? '°C' : units === 'kelvin' ? 'K' : '°F';
+    const speedUnit = units === 'metric' || units === 'kelvin' ? 'km/h' : 'mph';
 
     // Convert temperature if needed
-    const displayTemp =
-      units === 'metric'
-        ? Math.round(((temperature - 32) * 5) / 9)
-        : temperature;
+    let displayTemp = temperature;
+    if (units === 'metric') {
+      displayTemp = Math.round(((temperature - 32) * 5) / 9);
+    } else if (units === 'kelvin') {
+      displayTemp = Math.round(((temperature - 32) * 5) / 9 + 273.15);
+    }
 
     // Convert wind speed if needed
     const displayWindSpeed =
-      units === 'metric' ? Math.round(windSpeed * 1.60934) : windSpeed;
+      units === 'metric' || units === 'kelvin'
+        ? Math.round(windSpeed * 1.60934)
+        : windSpeed;
 
     // Colorize each part separately for more varied colors
     const coloredSummary = colorizeWeather(
@@ -544,7 +554,7 @@ function formatWeatherData(
 function formatForecastData(
   forecastData: ForecastData,
   platform: string,
-  units: 'metric' | 'imperial' = 'imperial'
+  units: 'metric' | 'imperial' | 'kelvin' = 'imperial'
 ): string {
   try {
     const dailyData = forecastData.daily?.data;
@@ -557,7 +567,8 @@ function formatForecastData(
     const forecastDays = dailyData.slice(0, 5);
 
     // Determine unit symbols
-    const tempUnit = units === 'metric' ? '°C' : '°F';
+    const tempUnit =
+      units === 'metric' ? '°C' : units === 'kelvin' ? 'K' : '°F';
 
     const formattedDays = forecastDays
       .map((day) => {
@@ -569,10 +580,15 @@ function formatForecastData(
         const low = Math.round(day.temperatureLow || 0);
 
         // Convert temperatures if needed
-        const displayHigh =
-          units === 'metric' ? Math.round(((high - 32) * 5) / 9) : high;
-        const displayLow =
-          units === 'metric' ? Math.round(((low - 32) * 5) / 9) : low;
+        let displayHigh = high;
+        let displayLow = low;
+        if (units === 'metric') {
+          displayHigh = Math.round(((high - 32) * 5) / 9);
+          displayLow = Math.round(((low - 32) * 5) / 9);
+        } else if (units === 'kelvin') {
+          displayHigh = Math.round(((high - 32) * 5) / 9 + 273.15);
+          displayLow = Math.round(((low - 32) * 5) / 9 + 273.15);
+        }
 
         const summary = day.summary ? day.summary.replace(/\.$/, '') : '';
         const precipChance = Math.round((day.precipProbability || 0) * 100);
@@ -734,11 +750,16 @@ const weatherCommandSub = nats.subscribe(
         .trim();
 
       // Parse flags for unit conversion
-      let units: 'metric' | 'imperial' = 'imperial'; // default to imperial
+      let units: 'metric' | 'imperial' | 'kelvin' = 'imperial'; // default to imperial
       let locationSearch = commandText;
 
+      // Check for -k flag (Kelvin)
+      if (commandText.includes('-k')) {
+        units = 'kelvin';
+        locationSearch = commandText.replace('-k', '').trim();
+      }
       // Check for -c flag (Celsius/metric)
-      if (commandText.includes('-c')) {
+      else if (commandText.includes('-c')) {
         units = 'metric';
         locationSearch = commandText.replace('-c', '').trim();
       }
@@ -800,7 +821,7 @@ const weatherCommandSub = nats.subscribe(
       }
 
       // Determine API units (Pirate Weather uses 'us' for imperial, 'si' for metric)
-      const apiUnits = units === 'metric' ? 'si' : 'us';
+      const apiUnits = units === 'metric' || units === 'kelvin' ? 'si' : 'us';
 
       // Fetch weather data
       const weatherData = await fetchWeatherData(
@@ -888,11 +909,16 @@ const forecastCommandSub = nats.subscribe(
         .trim();
 
       // Parse flags for unit conversion
-      let units: 'metric' | 'imperial' = 'imperial'; // default to imperial
+      let units: 'metric' | 'imperial' | 'kelvin' = 'imperial'; // default to imperial
       let locationSearch = commandText;
 
+      // Check for -k flag (Kelvin)
+      if (commandText.includes('-k')) {
+        units = 'kelvin';
+        locationSearch = commandText.replace('-k', '').trim();
+      }
       // Check for -c flag (Celsius/metric)
-      if (commandText.includes('-c')) {
+      else if (commandText.includes('-c')) {
         units = 'metric';
         locationSearch = commandText.replace('-c', '').trim();
       }
@@ -954,7 +980,7 @@ const forecastCommandSub = nats.subscribe(
       }
 
       // Determine API units (Pirate Weather uses 'us' for imperial, 'si' for metric)
-      const apiUnits = units === 'metric' ? 'si' : 'us';
+      const apiUnits = units === 'metric' || units === 'kelvin' ? 'si' : 'us';
 
       // Fetch forecast data
       const forecastData = await fetchForecastData(
@@ -1095,6 +1121,11 @@ const weatherHelp = [
         required: false,
         descr: 'Use Fahrenheit/imperial units',
       },
+      {
+        param: '-k',
+        required: false,
+        descr: 'Use Kelvin units',
+      },
     ],
   },
   {
@@ -1117,6 +1148,11 @@ const weatherHelp = [
         param: '-f',
         required: false,
         descr: 'Use Fahrenheit/imperial units',
+      },
+      {
+        param: '-k',
+        required: false,
+        descr: 'Use Kelvin units',
       },
     ],
   },
