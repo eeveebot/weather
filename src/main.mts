@@ -150,6 +150,16 @@ try {
     )
   `);
 
+  // Create table for user preferences
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS user_preferences (
+      user_ident TEXT PRIMARY KEY,
+      obscure BOOLEAN NOT NULL DEFAULT 0,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    )
+  `);
+
   log.info('Initialized weather database', {
     producer: 'weather',
     dbPath,
@@ -185,6 +195,18 @@ const setUserUnitsStmt = db.prepare(`
   VALUES (?, ?)
   ON CONFLICT(user_ident) DO UPDATE SET 
     units = excluded.units,
+    updated_at = CURRENT_TIMESTAMP
+`);
+
+// Prepared statements for user preferences
+const getUserObscurePreferenceStmt = db.prepare(
+  'SELECT obscure FROM user_preferences WHERE user_ident = ?'
+);
+const setUserObscurePreferenceStmt = db.prepare(`
+  INSERT INTO user_preferences (user_ident, obscure) 
+  VALUES (?, ?)
+  ON CONFLICT(user_ident) DO UPDATE SET 
+    obscure = excluded.obscure,
     updated_at = CURRENT_TIMESTAMP
 `);
 
@@ -283,6 +305,45 @@ function setUserUnits(
       producer: 'weather',
       userIdent,
       units,
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
+}
+
+/**
+ * Get user's obscure preference
+ * @param userIdent User identifier
+ * @returns Boolean indicating if user has obscure preference enabled
+ */
+function getUserObscurePreference(userIdent: string): boolean {
+  try {
+    const row = getUserObscurePreferenceStmt.get(userIdent) as
+      | { obscure: number }
+      | undefined;
+    return row ? Boolean(row.obscure) : false;
+  } catch (error) {
+    log.error('Failed to get user obscure preference', {
+      producer: 'weather',
+      userIdent,
+      error: error instanceof Error ? error.message : String(error),
+    });
+    return false;
+  }
+}
+
+/**
+ * Set user's obscure preference
+ * @param userIdent User identifier
+ * @param obscure Boolean indicating if user wants to obscure their location
+ */
+function setUserObscurePreference(userIdent: string, obscure: boolean): void {
+  try {
+    setUserObscurePreferenceStmt.run(userIdent, obscure ? 1 : 0);
+  } catch (error) {
+    log.error('Failed to set user obscure preference', {
+      producer: 'weather',
+      userIdent,
+      obscure,
       error: error instanceof Error ? error.message : String(error),
     });
   }
@@ -776,28 +837,35 @@ const weatherCommandSub = nats.subscribe(
       // Strip the command name from the text to get just the location and flags
       const commandText = data.text.trim();
 
-      // Parse flags for unit conversion
+      // Parse flags for unit conversion and obscure preference
       let units: 'metric' | 'imperial' | 'kelvin' = 'imperial'; // default to imperial
       let locationSearch = commandText;
+      let toggleObscure = false;
+      const userIdent = `${data.platform}:${data.network}:${data.user}`;
+
+      // Check for -o flag (obscure)
+      if (commandText.includes('-o')) {
+        toggleObscure = true;
+        locationSearch = commandText.replace('-o', '').trim();
+      }
 
       // Check for -k flag (Kelvin)
-      if (commandText.includes('-k')) {
+      if (locationSearch.includes('-k')) {
         units = 'kelvin';
-        locationSearch = commandText.replace('-k', '').trim();
+        locationSearch = locationSearch.replace('-k', '').trim();
       }
       // Check for -c flag (Celsius/metric)
-      else if (commandText.includes('-c')) {
+      else if (locationSearch.includes('-c')) {
         units = 'metric';
-        locationSearch = commandText.replace('-c', '').trim();
+        locationSearch = locationSearch.replace('-c', '').trim();
       }
       // Check for -f flag (Fahrenheit/imperial)
-      else if (commandText.includes('-f')) {
+      else if (locationSearch.includes('-f')) {
         units = 'imperial';
-        locationSearch = commandText.replace('-f', '').trim();
+        locationSearch = locationSearch.replace('-f', '').trim();
       }
       // If no flags, check user's stored preference
       else {
-        const userIdent = `${data.platform}:${data.network}:${data.user}`;
         const storedUnits = getUserUnits(userIdent);
         if (storedUnits) {
           units = storedUnits;
@@ -806,8 +874,13 @@ const weatherCommandSub = nats.subscribe(
 
       // If flags were used, save the preference
       if (commandText !== locationSearch) {
-        const userIdent = `${data.platform}:${data.network}:${data.user}`;
         setUserUnits(userIdent, units);
+      }
+
+      // Toggle obscure preference if -o flag was used
+      if (toggleObscure) {
+        const currentObscure = getUserObscurePreference(userIdent);
+        setUserObscurePreference(userIdent, !currentObscure);
       }
 
       let coordinates = null;
@@ -870,12 +943,16 @@ const weatherCommandSub = nats.subscribe(
         units
       );
 
+      // Check if user has obscure preference enabled
+      const obscureEnabled = getUserObscurePreference(userIdent);
+      const displayText = obscureEnabled ? data.user : displayLocation;
+
       const response = {
         channel: data.channel,
         network: data.network,
         instance: data.instance,
         platform: data.platform,
-        text: `Weather for ${displayLocation}: ${formattedWeather}`,
+        text: `Weather for ${displayText}: ${formattedWeather}`,
         trace: data.trace,
         type: 'message.outgoing',
       };
@@ -935,28 +1012,35 @@ const forecastCommandSub = nats.subscribe(
         .replace(/^(forecast|fivecast)\s*/i, '')
         .trim();
 
-      // Parse flags for unit conversion
+      // Parse flags for unit conversion and obscure preference
       let units: 'metric' | 'imperial' | 'kelvin' = 'imperial'; // default to imperial
       let locationSearch = commandText;
+      let toggleObscure = false;
+      const userIdent = `${data.platform}:${data.network}:${data.user}`;
+
+      // Check for -o flag (obscure)
+      if (commandText.includes('-o')) {
+        toggleObscure = true;
+        locationSearch = commandText.replace('-o', '').trim();
+      }
 
       // Check for -k flag (Kelvin)
-      if (commandText.includes('-k')) {
+      if (locationSearch.includes('-k')) {
         units = 'kelvin';
-        locationSearch = commandText.replace('-k', '').trim();
+        locationSearch = locationSearch.replace('-k', '').trim();
       }
       // Check for -c flag (Celsius/metric)
-      else if (commandText.includes('-c')) {
+      else if (locationSearch.includes('-c')) {
         units = 'metric';
-        locationSearch = commandText.replace('-c', '').trim();
+        locationSearch = locationSearch.replace('-c', '').trim();
       }
       // Check for -f flag (Fahrenheit/imperial)
-      else if (commandText.includes('-f')) {
+      else if (locationSearch.includes('-f')) {
         units = 'imperial';
-        locationSearch = commandText.replace('-f', '').trim();
+        locationSearch = locationSearch.replace('-f', '').trim();
       }
       // If no flags, check user's stored preference
       else {
-        const userIdent = `${data.platform}:${data.network}:${data.user}`;
         const storedUnits = getUserUnits(userIdent);
         if (storedUnits) {
           units = storedUnits;
@@ -965,8 +1049,13 @@ const forecastCommandSub = nats.subscribe(
 
       // If flags were used, save the preference
       if (commandText !== locationSearch) {
-        const userIdent = `${data.platform}:${data.network}:${data.user}`;
         setUserUnits(userIdent, units);
+      }
+
+      // Toggle obscure preference if -o flag was used
+      if (toggleObscure) {
+        const currentObscure = getUserObscurePreference(userIdent);
+        setUserObscurePreference(userIdent, !currentObscure);
       }
 
       let coordinates = null;
@@ -1029,12 +1118,16 @@ const forecastCommandSub = nats.subscribe(
         units
       );
 
+      // Check if user has obscure preference enabled
+      const obscureEnabled = getUserObscurePreference(userIdent);
+      const displayText = obscureEnabled ? data.user : displayLocation;
+
       const response = {
         channel: data.channel,
         network: data.network,
         instance: data.instance,
         platform: data.platform,
-        text: `5-Day Forecast for ${displayLocation}: ${formattedForecast}`,
+        text: `5-Day Forecast for ${displayText}: ${formattedForecast}`,
         trace: data.trace,
         type: 'message.outgoing',
       };
@@ -1153,6 +1246,11 @@ const weatherHelp = [
         required: false,
         descr: 'Use Kelvin units',
       },
+      {
+        param: '-o',
+        required: false,
+        descr: 'Toggle obscure mode (hides location in responses)',
+      },
     ],
   },
   {
@@ -1180,6 +1278,11 @@ const weatherHelp = [
         param: '-k',
         required: false,
         descr: 'Use Kelvin units',
+      },
+      {
+        param: '-o',
+        required: false,
+        descr: 'Toggle obscure mode (hides location in responses)',
       },
     ],
   },
