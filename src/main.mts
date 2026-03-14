@@ -774,10 +774,7 @@ const weatherCommandSub = nats.subscribe(
 
       // Extract location from the command (optional)
       // Strip the command name from the text to get just the location and flags
-      const commandText = data.text
-        .trim()
-        .replace(/^weather\s*/i, '')
-        .trim();
+      const commandText = data.text.trim();
 
       // Parse flags for unit conversion
       let units: 'metric' | 'imperial' | 'kelvin' = 'imperial'; // default to imperial
