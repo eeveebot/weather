@@ -12,8 +12,11 @@ import { fetch } from 'undici';
 // Record module startup time for uptime tracking
 const moduleStartTime = Date.now();
 
-const weatherCommandUUID = 'weather-uuid-here';
+const weatherCommandUUID = 'd9de0032-5d46-41f9-a09f-33c8da28462c';
 const weatherCommandDisplayName = 'weather';
+
+const forecastCommandUUID = '16cc3c75-d406-4f16-b8ed-f8269aa1b0e0';
+const forecastCommandDisplayName = 'forecast';
 
 // Rate limit configuration interface
 interface RateLimitConfig {
@@ -149,7 +152,9 @@ try {
 }
 
 // Prepared statements for database operations
-const getUserLocationStmt = db.prepare('SELECT search_string, latitude, longitude FROM user_locations WHERE user_ident = ?');
+const getUserLocationStmt = db.prepare(
+  'SELECT search_string, latitude, longitude FROM user_locations WHERE user_ident = ?'
+);
 const setUserLocationStmt = db.prepare(`
   INSERT INTO user_locations (user_ident, search_string, latitude, longitude) 
   VALUES (?, ?, ?, ?)
@@ -165,10 +170,20 @@ const setUserLocationStmt = db.prepare(`
  * @param userIdent User identifier
  * @returns Location data or null if not found
  */
-function getUserLocation(userIdent: string): { searchString: string; lat: number; lon: number } | null {
+function getUserLocation(
+  userIdent: string
+): { searchString: string; lat: number; lon: number } | null {
   try {
-    const row = getUserLocationStmt.get(userIdent) as { search_string: string; latitude: number; longitude: number } | undefined;
-    return row ? { searchString: row.search_string, lat: row.latitude, lon: row.longitude } : null;
+    const row = getUserLocationStmt.get(userIdent) as
+      | { search_string: string; latitude: number; longitude: number }
+      | undefined;
+    return row
+      ? {
+          searchString: row.search_string,
+          lat: row.latitude,
+          lon: row.longitude,
+        }
+      : null;
   } catch (error) {
     log.error('Failed to get user location', {
       producer: 'weather',
@@ -186,7 +201,12 @@ function getUserLocation(userIdent: string): { searchString: string; lat: number
  * @param lat Latitude
  * @param lon Longitude
  */
-function setUserLocation(userIdent: string, searchString: string, lat: number, lon: number): void {
+function setUserLocation(
+  userIdent: string,
+  searchString: string,
+  lat: number,
+  lon: number
+): void {
   try {
     setUserLocationStmt.run(userIdent, searchString, lat, lon);
   } catch (error) {
@@ -206,27 +226,31 @@ function setUserLocation(userIdent: string, searchString: string, lat: number, l
  * @param location Location search string
  * @returns Latitude and longitude or null if failed
  */
-async function zipcodeToCoordinates(location: string): Promise<{ lat: number; lon: number } | null> {
+async function zipcodeToCoordinates(
+  location: string
+): Promise<{ lat: number; lon: number } | null> {
   try {
     // Using OpenStreetMap Nominatim for geocoding
     const response = await fetch(
       `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(location)}&format=json&limit=1`
     );
-    
+
     if (!response.ok) {
       throw new Error(`Geocoding API returned ${response.status}`);
     }
-    
-    const data = await response.json() as Array<{ lat: string; lon: string }> | [];
-    
+
+    const data = (await response.json()) as
+      | Array<{ lat: string; lon: string }>
+      | [];
+
     if (!Array.isArray(data) || data.length === 0) {
       return null;
     }
-    
+
     const firstResult = data[0] as { lat: string; lon: string };
     return {
       lat: parseFloat(firstResult.lat),
-      lon: parseFloat(firstResult.lon)
+      lon: parseFloat(firstResult.lon),
     };
   } catch (error) {
     log.error('Failed to convert location to coordinates', {
@@ -258,7 +282,23 @@ interface WeatherData {
   };
 }
 
-async function fetchWeatherData(lat: number, lon: number): Promise<WeatherData | null> {
+interface ForecastData {
+  daily?: {
+    data?: Array<{
+      time?: number;
+      summary?: string;
+      temperatureHigh?: number;
+      temperatureLow?: number;
+      precipProbability?: number;
+      icon?: string;
+    }>;
+  };
+}
+
+async function fetchWeatherData(
+  lat: number,
+  lon: number
+): Promise<WeatherData | null> {
   try {
     const apiKey = process.env.PIRATE_WEATHER_API_KEY;
     if (!apiKey) {
@@ -273,10 +313,47 @@ async function fetchWeatherData(lat: number, lon: number): Promise<WeatherData |
       throw new Error(`Pirate Weather API returned ${response.status}`);
     }
 
-    const data = await response.json() as WeatherData;
+    const data = (await response.json()) as WeatherData;
     return data;
   } catch (error) {
     log.error('Failed to fetch weather data', {
+      producer: 'weather',
+      lat,
+      lon,
+      error: error instanceof Error ? error.message : String(error),
+    });
+    return null;
+  }
+}
+
+/**
+ * Fetch forecast data from Pirate Weather API
+ * @param lat Latitude
+ * @param lon Longitude
+ * @returns Forecast data or null if failed
+ */
+async function fetchForecastData(
+  lat: number,
+  lon: number
+): Promise<ForecastData | null> {
+  try {
+    const apiKey = process.env.PIRATE_WEATHER_API_KEY;
+    if (!apiKey) {
+      throw new Error('PIRATE_WEATHER_API_KEY environment variable not set');
+    }
+
+    const response = await fetch(
+      `https://api.pirateweather.net/forecast/${apiKey}/${lat},${lon}?units=us&extend=hourly`
+    );
+
+    if (!response.ok) {
+      throw new Error(`Pirate Weather API returned ${response.status}`);
+    }
+
+    const data = (await response.json()) as ForecastData;
+    return data;
+  } catch (error) {
+    log.error('Failed to fetch forecast data', {
       producer: 'weather',
       lat,
       lon,
@@ -330,6 +407,53 @@ function formatWeatherData(weatherData: WeatherData): string {
   }
 }
 
+/**
+ * Format forecast data for display
+ * @param forecastData Raw forecast data
+ * @returns Formatted forecast string
+ */
+function formatForecastData(forecastData: ForecastData): string {
+  try {
+    const dailyData = forecastData.daily?.data;
+
+    if (!dailyData || dailyData.length === 0) {
+      return 'Unable to parse forecast data';
+    }
+
+    // Get the next 5 days of forecast data
+    const forecastDays = dailyData.slice(0, 5);
+
+    const formattedDays = forecastDays
+      .map((day) => {
+        if (!day.time) return '';
+
+        const date = new Date(day.time * 1000);
+        const dayName = date.toLocaleDateString('en-US', { weekday: 'short' });
+        const high = Math.round(day.temperatureHigh || 0);
+        const low = Math.round(day.temperatureLow || 0);
+        const summary = day.summary ? day.summary.replace(/\.$/, '') : '';
+        const precipChance = Math.round((day.precipProbability || 0) * 100);
+
+        let result = `${dayName}: ${summary}, High: ${high}°F, Low: ${low}°F`;
+
+        if (precipChance > 0) {
+          result += `, ${precipChance}% rain`;
+        }
+
+        return result;
+      })
+      .filter((day) => day !== '');
+
+    return formattedDays.join(' | ');
+  } catch (error) {
+    log.error('Failed to format forecast data', {
+      producer: 'weather',
+      error: error instanceof Error ? error.message : String(error),
+    });
+    return 'Unable to format forecast data';
+  }
+}
+
 // Function to register the weather command with the router
 async function registerWeatherCommand(): Promise<void> {
   // Default rate limit configuration
@@ -371,11 +495,53 @@ async function registerWeatherCommand(): Promise<void> {
   }
 }
 
+// Function to register the forecast command with the router
+async function registerForecastCommand(): Promise<void> {
+  // Default rate limit configuration
+  const defaultRateLimit = {
+    mode: 'drop',
+    level: 'user',
+    limit: 5,
+    interval: '1m',
+  };
+
+  // Use configured rate limit or default
+  const rateLimitConfig = weatherConfig.ratelimit || defaultRateLimit;
+
+  const commandRegistration = {
+    type: 'command.register',
+    commandUUID: forecastCommandUUID,
+    commandDisplayName: forecastCommandDisplayName,
+    platform: '.*', // Match all platforms
+    network: '.*', // Match all networks
+    instance: '.*', // Match all instances
+    channel: '.*', // Match all channels
+    user: '.*', // Match all users
+    regex: '(?:forecast|fivecast)(?:\\s+(.+))?$', // Match forecast/fivecast with optional location
+    platformPrefixAllowed: true,
+    ratelimit: rateLimitConfig,
+  };
+
+  try {
+    await nats.publish('command.register', JSON.stringify(commandRegistration));
+    log.info('Registered forecast command with router', {
+      producer: 'weather',
+      ratelimit: rateLimitConfig,
+    });
+  } catch (error) {
+    log.error('Failed to register forecast command', {
+      producer: 'weather',
+      error: error,
+    });
+  }
+}
+
 // Register commands at startup
 await registerWeatherCommand();
+await registerForecastCommand();
 
 // Subscribe to command execution messages
-      const weatherCommandSub = nats.subscribe(
+const weatherCommandSub = nats.subscribe(
   `command.execute.${weatherCommandUUID}`,
   async (subject, message) => {
     try {
@@ -409,10 +575,10 @@ await registerWeatherCommand();
 
       // Extract location from the command (optional)
       const locationSearch = data.text.trim();
-      
+
       let coordinates = null;
       let displayLocation = '';
-      
+
       // If location provided in command, convert to coordinates
       if (locationSearch) {
         // Convert location search to coordinates
@@ -421,12 +587,17 @@ await registerWeatherCommand();
           sendErrorResponse(`Unable to find location for "${locationSearch}"`);
           return;
         }
-        
+
         displayLocation = locationSearch;
-        
+
         // Store the location for this user
         const userIdent = `${data.platform}:${data.network}:${data.user}`;
-        setUserLocation(userIdent, locationSearch, coordinates.lat, coordinates.lon);
+        setUserLocation(
+          userIdent,
+          locationSearch,
+          coordinates.lat,
+          coordinates.lon
+        );
       } else {
         // No location provided, check stored location
         const userIdent = `${data.platform}:${data.network}:${data.user}`;
@@ -435,15 +606,22 @@ await registerWeatherCommand();
           coordinates = { lat: storedLocation.lat, lon: storedLocation.lon };
           displayLocation = storedLocation.searchString;
         } else {
-          sendErrorResponse('Please provide a location or set one with "weather <location>" first');
+          sendErrorResponse(
+            'Please provide a location or set one with "weather <location>" first'
+          );
           return;
         }
       }
 
       // Fetch weather data
-      const weatherData = await fetchWeatherData(coordinates.lat, coordinates.lon);
+      const weatherData = await fetchWeatherData(
+        coordinates.lat,
+        coordinates.lon
+      );
       if (!weatherData) {
-        sendErrorResponse('Unable to fetch weather data. Please try again later.');
+        sendErrorResponse(
+          'Unable to fetch weather data. Please try again later.'
+        );
         return;
       }
 
@@ -475,6 +653,119 @@ await registerWeatherCommand();
 );
 natsSubscriptions.push(weatherCommandSub);
 
+// Subscribe to forecast command execution messages
+const forecastCommandSub = nats.subscribe(
+  `command.execute.${forecastCommandUUID}`,
+  async (subject, message) => {
+    try {
+      const data = JSON.parse(message.string());
+      // Send error response helper function
+      const sendErrorResponse = (errorMessage: string) => {
+        if (data && data.platform && data.instance && data.channel) {
+          const response = {
+            channel: data.channel,
+            network: data.network,
+            instance: data.instance,
+            platform: data.platform,
+            text: errorMessage,
+            trace: data.trace,
+            type: 'message.outgoing',
+          };
+
+          const outgoingTopic = `chat.message.outgoing.${data.platform}.${data.instance}.${data.channel}`;
+          void nats.publish(outgoingTopic, JSON.stringify(response));
+        }
+      };
+
+      log.info('Received command.execute for forecast', {
+        producer: 'weather',
+        platform: data.platform,
+        instance: data.instance,
+        channel: data.channel,
+        user: data.user,
+        originalText: data.originalText,
+      });
+
+      // Extract location from the command (optional)
+      const locationSearch = data.text.trim();
+
+      let coordinates = null;
+      let displayLocation = '';
+
+      // If location provided in command, convert to coordinates
+      if (locationSearch) {
+        // Convert location search to coordinates
+        coordinates = await zipcodeToCoordinates(locationSearch);
+        if (!coordinates) {
+          sendErrorResponse(`Unable to find location for "${locationSearch}"`);
+          return;
+        }
+
+        displayLocation = locationSearch;
+
+        // Store the location for this user
+        const userIdent = `${data.platform}:${data.network}:${data.user}`;
+        setUserLocation(
+          userIdent,
+          locationSearch,
+          coordinates.lat,
+          coordinates.lon
+        );
+      } else {
+        // No location provided, check stored location
+        const userIdent = `${data.platform}:${data.network}:${data.user}`;
+        const storedLocation = getUserLocation(userIdent);
+        if (storedLocation) {
+          coordinates = { lat: storedLocation.lat, lon: storedLocation.lon };
+          displayLocation = storedLocation.searchString;
+        } else {
+          sendErrorResponse(
+            'Please provide a location or set one with "forecast <location>" first'
+          );
+          return;
+        }
+      }
+
+      // Fetch forecast data
+      const forecastData = await fetchForecastData(
+        coordinates.lat,
+        coordinates.lon
+      );
+      if (!forecastData) {
+        sendErrorResponse(
+          'Unable to fetch forecast data. Please try again later.'
+        );
+        return;
+      }
+
+      // Format and send forecast data
+      const formattedForecast = formatForecastData(forecastData);
+
+      const response = {
+        channel: data.channel,
+        network: data.network,
+        instance: data.instance,
+        platform: data.platform,
+        text: `5-Day Forecast for ${displayLocation}: ${formattedForecast}`,
+        trace: data.trace,
+        type: 'message.outgoing',
+      };
+
+      const outgoingTopic = `chat.message.outgoing.${data.platform}.${data.instance}.${data.channel}`;
+      void nats.publish(outgoingTopic, JSON.stringify(response));
+    } catch (error) {
+      log.error('Failed to process forecast command', {
+        producer: 'weather',
+        error: error instanceof Error ? error.message : String(error),
+      });
+
+      // We can't send a specific error response since we don't have the data structure
+      // The error has been logged, so we'll just silently fail
+    }
+  }
+);
+natsSubscriptions.push(forecastCommandSub);
+
 // Subscribe to control messages for re-registering commands
 const controlSubRegisterCommandWeather = nats.subscribe(
   `control.registerCommands.${weatherCommandDisplayName}`,
@@ -490,6 +781,20 @@ const controlSubRegisterCommandWeather = nats.subscribe(
 );
 natsSubscriptions.push(controlSubRegisterCommandWeather);
 
+const controlSubRegisterCommandForecast = nats.subscribe(
+  `control.registerCommands.${forecastCommandDisplayName}`,
+  () => {
+    log.info(
+      `Received control.registerCommands.${forecastCommandDisplayName} control message`,
+      {
+        producer: 'weather',
+      }
+    );
+    void registerForecastCommand();
+  }
+);
+natsSubscriptions.push(controlSubRegisterCommandForecast);
+
 const controlSubRegisterCommandAll = nats.subscribe(
   'control.registerCommands',
   () => {
@@ -497,6 +802,7 @@ const controlSubRegisterCommandAll = nats.subscribe(
       producer: 'weather',
     });
     void registerWeatherCommand();
+    void registerForecastCommand();
   }
 );
 natsSubscriptions.push(controlSubRegisterCommandAll);
@@ -536,7 +842,21 @@ natsSubscriptions.push(statsUptimeSub);
 const weatherHelp = [
   {
     command: 'weather',
-    descr: 'Get current weather for a location (location can be omitted if previously set)',
+    descr:
+      'Get current weather for a location (location can be omitted if previously set)',
+    params: [
+      {
+        param: '[location]',
+        required: false,
+        descr: 'Any location string (address, city, postal code, etc.)',
+      },
+    ],
+  },
+  {
+    command: 'forecast',
+    descr:
+      'Get 5-day weather forecast for a location (location can be omitted if previously set)',
+    aliases: ['fivecast'],
     params: [
       {
         param: '[location]',
