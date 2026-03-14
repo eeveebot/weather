@@ -675,7 +675,7 @@ async function registerWeatherCommand(): Promise<void> {
     instance: '.*', // Match all instances
     channel: '.*', // Match all channels
     user: '.*', // Match all users
-    regex: 'weather(?:\\s+(.+))?$', // Match weather with optional location
+    regex: 'weather', // Match weather
     platformPrefixAllowed: true,
     ratelimit: rateLimitConfig,
   };
@@ -716,7 +716,7 @@ async function registerForecastCommand(): Promise<void> {
     instance: '.*', // Match all instances
     channel: '.*', // Match all channels
     user: '.*', // Match all users
-    regex: '(?:forecast|fivecast)(?:\\s+(.+))?$', // Match forecast/fivecast with optional location
+    regex: '(?:forecast|fivecast)', // Match forecast/fivecast with optional location
     platformPrefixAllowed: true,
     ratelimit: rateLimitConfig,
   };
