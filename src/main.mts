@@ -289,6 +289,24 @@ function setUserUnits(
 }
 
 /**
+ * Detect if a string is a US ZIP code (5 digits or ZIP+4 format)
+ * @param str String to check
+ * @returns True if string matches US ZIP code format
+ */
+function isUSZipCode(str: string): boolean {
+  return /^\d{5}(-\d{4})?$/.test(str.trim());
+}
+
+/**
+ * Detect if a string is a Canadian postal code (A1A 1A1 format)
+ * @param str String to check
+ * @returns True if string matches Canadian postal code format
+ */
+function isCanadianPostalCode(str: string): boolean {
+  return /^[A-Za-z]\d[A-Za-z] ?\d[A-Za-z]\d$/.test(str.trim());
+}
+
+/**
  * Convert location search string to coordinates using a geocoding service
  * @param location Location search string
  * @returns Latitude and longitude or null if failed
@@ -297,10 +315,22 @@ async function zipcodeToCoordinates(
   location: string
 ): Promise<{ lat: number; lon: number } | null> {
   try {
+    let url: string;
+
+    // Check if location is a ZIP code or postal code for more specific search
+    if (isUSZipCode(location)) {
+      // Use specific postal code search for US ZIP codes
+      url = `https://nominatim.openstreetmap.org/search?postalcode=${encodeURIComponent(location.trim())}&countrycodes=US&format=json&limit=1`;
+    } else if (isCanadianPostalCode(location)) {
+      // Use specific postal code search for Canadian postal codes
+      url = `https://nominatim.openstreetmap.org/search?postalcode=${encodeURIComponent(location.trim())}&countrycodes=CA&format=json&limit=1`;
+    } else {
+      // Use general search for other locations
+      url = `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(location)}&format=json&limit=1`;
+    }
+
     // Using OpenStreetMap Nominatim for geocoding
-    const response = await fetch(
-      `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(location)}&format=json&limit=1`
-    );
+    const response = await fetch(url);
 
     if (!response.ok) {
       throw new Error(`Geocoding API returned ${response.status}`);
