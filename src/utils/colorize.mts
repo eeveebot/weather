@@ -1,22 +1,40 @@
 import * as ircColors from 'irc-colors';
 import { log } from '@eeveebot/libeevee';
 
-// Weather condition icons
+// Handle both ES module and CommonJS imports
+const ircColorsObj =
+  (ircColors as unknown as { default?: typeof ircColors }).default || ircColors;
+
+// Weather condition icons - trailing spaces intentional
 const weatherIcons: Record<string, string> = {
-  'clear-day': '☀️',
-  'clear-night': '🌙',
-  rain: '🌧️',
-  snow: '❄️',
-  sleet: '🌨️',
-  wind: '💨',
-  fog: '🌫️',
-  cloudy: '☁️',
-  'partly-cloudy-day': '⛅',
-  'partly-cloudy-night': '☁️🌙',
-  thunderstorm: '⛈️',
-  tornado: '🌪️',
-  hail: '🌨️',
-  unknown: '❓',
+  'clear-day': '☀️ ',
+  'clear-night': '🌙 ',
+  rain: '🌧️ ',
+  snow: '❄️ ',
+  sleet: '🌨️ ',
+  wind: '💨 ',
+  fog: '🌫️ ',
+  cloudy: '☁️ ',
+  'partly-cloudy-day': '⛅ ',
+  'partly-cloudy-night': '☁️🌙 ',
+  thunderstorm: '⛈️ ',
+  tornado: '🌪️ ',
+  hail: '🌨️ ',
+  unknown: '❓ ',
+};
+
+// Available irc-colors for weather conditions
+// Using a more defensive approach to avoid runtime errors
+const safeColorFunctions: Record<
+  string,
+  ((text: string) => string) | undefined
+> = {
+  blue: ircColorsObj.blue,
+  cyan: ircColorsObj.cyan,
+  green: ircColorsObj.green,
+  yellow: ircColorsObj.yellow,
+  orange: ircColorsObj.orange,
+  red: ircColorsObj.red,
 };
 
 // Temperature color mapping
@@ -24,39 +42,27 @@ function getTemperatureColor(temp: number): (text: string) => string {
   log.debug('getTemperatureColor called', {
     producer: 'weather',
     temp: temp,
-    ircColorsBlue: typeof ircColors.blue,
-    ircColorsCyan: typeof ircColors.cyan,
-    ircColorsGreen: typeof ircColors.green,
-    ircColorsYellow: typeof ircColors.yellow,
-    ircColorsOrange: typeof ircColors.orange,
-    ircColorsRed: typeof ircColors.red,
   });
 
   let colorFunction: ((text: string) => string) | undefined;
 
   if (temp < 32) {
-    colorFunction = ircColors.blue;
-    log.debug('Selected ircColors.blue', { producer: 'weather' });
+    colorFunction = safeColorFunctions.blue;
   } else if (temp < 50) {
-    colorFunction = ircColors.cyan;
-    log.debug('Selected ircColors.cyan', { producer: 'weather' });
+    colorFunction = safeColorFunctions.cyan;
   } else if (temp < 70) {
-    colorFunction = ircColors.green;
-    log.debug('Selected ircColors.green', { producer: 'weather' });
+    colorFunction = safeColorFunctions.green;
   } else if (temp < 80) {
-    colorFunction = ircColors.yellow;
-    log.debug('Selected ircColors.yellow', { producer: 'weather' });
+    colorFunction = safeColorFunctions.yellow;
   } else if (temp < 90) {
-    colorFunction = ircColors.orange;
-    log.debug('Selected ircColors.orange', { producer: 'weather' });
+    colorFunction = safeColorFunctions.orange;
   } else {
-    colorFunction = ircColors.red;
-    log.debug('Selected ircColors.red', { producer: 'weather' });
+    colorFunction = safeColorFunctions.red;
   }
 
   // Safety check to ensure we have a valid function
   if (typeof colorFunction !== 'function') {
-    log.error('Color function is not a function', {
+    log.error('Color function is not a function or is undefined', {
       producer: 'weather',
       colorFunction: colorFunction,
       typeofColorFunction: typeof colorFunction,
@@ -70,25 +76,27 @@ function getTemperatureColor(temp: number): (text: string) => string {
 
 // Wind speed color mapping
 function getWindSpeedColor(wind: number): (text: string) => string {
-  if (wind < 5) return ircColors.green;
-  if (wind < 15) return ircColors.yellow;
-  if (wind < 25) return ircColors.orange;
-  return ircColors.red;
+  if (wind < 5) return safeColorFunctions.green || ((text: string) => text);
+  if (wind < 15) return safeColorFunctions.yellow || ((text: string) => text);
+  if (wind < 25) return safeColorFunctions.orange || ((text: string) => text);
+  return safeColorFunctions.red || ((text: string) => text);
 }
 
 // Humidity color mapping
 function getHumidityColor(humidity: number): (text: string) => string {
-  if (humidity < 30) return ircColors.orange;
-  if (humidity < 70) return ircColors.green;
-  return ircColors.blue;
+  if (humidity < 30)
+    return safeColorFunctions.orange || ((text: string) => text);
+  if (humidity < 70)
+    return safeColorFunctions.green || ((text: string) => text);
+  return safeColorFunctions.blue || ((text: string) => text);
 }
 
 // Precipitation probability color mapping
 function getPrecipitationColor(precip: number): (text: string) => string {
-  if (precip < 20) return ircColors.green;
-  if (precip < 50) return ircColors.yellow;
-  if (precip < 80) return ircColors.orange;
-  return ircColors.red;
+  if (precip < 20) return safeColorFunctions.green || ((text: string) => text);
+  if (precip < 50) return safeColorFunctions.yellow || ((text: string) => text);
+  if (precip < 80) return safeColorFunctions.orange || ((text: string) => text);
+  return safeColorFunctions.red || ((text: string) => text);
 }
 
 /**
