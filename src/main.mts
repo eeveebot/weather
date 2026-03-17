@@ -433,10 +433,13 @@ interface WeatherData {
     summary?: string;
     humidity?: number;
     windSpeed?: number;
+    windGust?: number;
   };
   daily?: {
     data?: Array<{
       precipProbability?: number;
+      temperatureHigh?: number;
+      temperatureLow?: number;
     }>;
   };
 }
@@ -466,7 +469,7 @@ async function fetchWeatherData(
     }
 
     const response = await fetch(
-      `https://api.pirateweather.net/forecast/${apiKey}/${lat},${lon}?units=${units}`
+      `https://api.pirateweather.net/forecast/${apiKey}/${lat},${lon}?units=${units}&exclude=minutely,hourly,alerts,flags`
     );
 
     if (!response.ok) {
@@ -551,8 +554,19 @@ function formatWeatherData(
     const summary = currently.summary || 'Unknown conditions';
     const humidity = Math.round((currently.humidity || 0) * 100);
     const windSpeed = Math.round(currently.windSpeed || 0);
+    const windGust = Math.round(currently.windGust || 0);
     const precipProbability = daily?.precipProbability || 0;
     const precipChance = Math.round(precipProbability * 100);
+
+    // Daily high/low temperatures
+    const temperatureHigh =
+      daily?.temperatureHigh !== undefined
+        ? Math.round(daily.temperatureHigh)
+        : undefined;
+    const temperatureLow =
+      daily?.temperatureLow !== undefined
+        ? Math.round(daily.temperatureLow)
+        : undefined;
 
     // Determine unit symbols
     const tempUnit =
@@ -561,10 +575,25 @@ function formatWeatherData(
 
     // Convert temperature if needed
     let displayTemp = temperature;
+    let displayHigh = temperatureHigh;
+    let displayLow = temperatureLow;
+
     if (units === 'metric') {
       displayTemp = Math.round(((temperature - 32) * 5) / 9);
+      if (displayHigh !== undefined) {
+        displayHigh = Math.round(((displayHigh - 32) * 5) / 9);
+      }
+      if (displayLow !== undefined) {
+        displayLow = Math.round(((displayLow - 32) * 5) / 9);
+      }
     } else if (units === 'kelvin') {
       displayTemp = Math.round(((temperature - 32) * 5) / 9 + 273.15);
+      if (displayHigh !== undefined) {
+        displayHigh = Math.round(((displayHigh - 32) * 5) / 9 + 273.15);
+      }
+      if (displayLow !== undefined) {
+        displayLow = Math.round(((displayLow - 32) * 5) / 9 + 273.15);
+      }
     }
 
     // Convert wind speed if needed
@@ -572,6 +601,11 @@ function formatWeatherData(
       units === 'metric' || units === 'kelvin'
         ? Math.round(windSpeed * 1.60934)
         : windSpeed;
+
+    const displayWindGust =
+      units === 'metric' || units === 'kelvin'
+        ? Math.round(windGust * 1.60934)
+        : windGust;
 
     // Colorize each part separately for more varied colors
     const coloredSummary = colorizeWeather(
@@ -592,6 +626,21 @@ function formatWeatherData(
     // Build the result with separators
     let result = `${coloredSummary}, ${coloredTemp}`;
 
+    // Add daily high/low if available
+    if (displayHigh !== undefined && displayLow !== undefined) {
+      const coloredHigh = colorizeWeather(
+        `H:${displayHigh}${tempUnit}`,
+        platform,
+        displayHigh
+      );
+      const coloredLow = colorizeWeather(
+        `L:${displayLow}${tempUnit}`,
+        platform,
+        displayLow
+      );
+      result += ` (${coloredHigh}/${coloredLow})`;
+    }
+
     if (humidity > 0) {
       const coloredHumidity = colorizeWeather(
         `${humidity}% humidity`,
@@ -604,8 +653,13 @@ function formatWeatherData(
     }
 
     if (displayWindSpeed > 0) {
+      let windText = `${displayWindSpeed} ${speedUnit} wind`;
+      if (displayWindGust > displayWindSpeed) {
+        windText += ` (gusts ${displayWindGust} ${speedUnit})`;
+      }
+
       const coloredWind = colorizeWeather(
-        `${displayWindSpeed} ${speedUnit} wind`,
+        windText,
         platform,
         undefined,
         displayWindSpeed
@@ -945,7 +999,9 @@ const weatherCommandSub = nats.subscribe(
 
       // Check if user has obscure preference enabled
       const obscureEnabled = getUserObscurePreference(userIdent);
-      const displayText = obscureEnabled ? data.user : displayLocation;
+      const displayText = obscureEnabled
+        ? data.nick || data.user
+        : displayLocation;
 
       const response = {
         channel: data.channel,
@@ -1120,7 +1176,9 @@ const forecastCommandSub = nats.subscribe(
 
       // Check if user has obscure preference enabled
       const obscureEnabled = getUserObscurePreference(userIdent);
-      const displayText = obscureEnabled ? data.user : displayLocation;
+      const displayText = obscureEnabled
+        ? data.nick || data.user
+        : displayLocation;
 
       const response = {
         channel: data.channel,
