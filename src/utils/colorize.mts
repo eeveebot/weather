@@ -1,4 +1,8 @@
-import { ircColors, log } from '@eeveebot/libeevee';
+import {
+  colorizeByValue,
+  colorizeForPlatform,
+  type ValueColorRange,
+} from '@eeveebot/libeevee';
 
 // Weather condition icons - trailing spaces intentional
 const weatherIcons: Record<string, string> = {
@@ -18,116 +22,63 @@ const weatherIcons: Record<string, string> = {
   unknown: '❓ ',
 };
 
-// Available irc-colors for weather conditions
-const safeColorFunctions: Record<
-  string,
-  ((text: string) => string) | undefined
-> = {
-  blue: ircColors.blue,
-  cyan: ircColors.cyan,
-  green: ircColors.green,
-  yellow: ircColors.yellow,
-  orange: ircColors.orange,
-  red: ircColors.red,
-};
-
-// Temperature color mapping
-function getTemperatureColor(temp: number): (text: string) => string {
-  log.debug('getTemperatureColor called', {
-    producer: 'weather',
-    temp: temp,
-  });
-
-  let colorFunction: ((text: string) => string) | undefined;
-
-  if (temp < 32) {
-    colorFunction = safeColorFunctions.blue;
-  } else if (temp < 50) {
-    colorFunction = safeColorFunctions.cyan;
-  } else if (temp < 70) {
-    colorFunction = safeColorFunctions.green;
-  } else if (temp < 80) {
-    colorFunction = safeColorFunctions.yellow;
-  } else if (temp < 90) {
-    colorFunction = safeColorFunctions.orange;
-  } else {
-    colorFunction = safeColorFunctions.red;
-  }
-
-  // Safety check to ensure we have a valid function
-  if (typeof colorFunction !== 'function') {
-    log.error('Color function is not a function or is undefined', {
-      producer: 'weather',
-      colorFunction: colorFunction,
-      typeofColorFunction: typeof colorFunction,
-    });
-    // Return a fallback function that just returns the text unchanged
-    return (text: string) => text;
-  }
-
-  return colorFunction;
-}
-
-// Wind speed color mapping
-function getWindSpeedColor(wind: number): (text: string) => string {
-  if (wind < 5) return safeColorFunctions.green || ((text: string) => text);
-  if (wind < 15) return safeColorFunctions.yellow || ((text: string) => text);
-  if (wind < 25) return safeColorFunctions.orange || ((text: string) => text);
-  return safeColorFunctions.red || ((text: string) => text);
-}
-
-// Humidity color mapping
-function getHumidityColor(humidity: number): (text: string) => string {
-  if (humidity < 30)
-    return safeColorFunctions.orange || ((text: string) => text);
-  if (humidity < 70)
-    return safeColorFunctions.green || ((text: string) => text);
-  return safeColorFunctions.blue || ((text: string) => text);
-}
-
-// Precipitation probability color mapping
-function getPrecipitationColor(precip: number): (text: string) => string {
-  if (precip < 20) return safeColorFunctions.green || ((text: string) => text);
-  if (precip < 50) return safeColorFunctions.yellow || ((text: string) => text);
-  if (precip < 80) return safeColorFunctions.orange || ((text: string) => text);
-  return safeColorFunctions.red || ((text: string) => text);
-}
-
 /**
- * Get weather icon for condition
- * @param condition Weather condition string
- * @returns Weather icon emoji
+ * Get a weather emoji for a condition string.
+ * Normalizes case/whitespace and falls back to ❓.
  */
 export function getWeatherIcon(condition: string): string {
-  // Normalize condition string to lowercase and remove extra whitespace
-  const normalizedCondition = condition.toLowerCase().trim();
-
-  // Try direct match first
-  if (weatherIcons[normalizedCondition]) {
-    return weatherIcons[normalizedCondition];
-  }
-
-  // Try partial matching for conditions like "Partly Cloudy"
+  const normalized = condition.toLowerCase().trim();
+  if (weatherIcons[normalized]) return weatherIcons[normalized];
   for (const [key, icon] of Object.entries(weatherIcons)) {
-    if (normalizedCondition.includes(key)) {
-      return icon;
-    }
+    if (normalized.includes(key)) return icon;
   }
-
-  // Default icon
   return weatherIcons.unknown;
 }
 
+// Temperature → color range (Fahrenheit)
+const tempColorDef: ValueColorRange = {
+  ranges: [
+    { max: 32, color: 'blue' },
+    { max: 50, color: 'cyan' },
+    { max: 70, color: 'green' },
+    { max: 80, color: 'yellow' },
+    { max: 90, color: 'olive' },
+  ],
+  fallback: 'red',
+};
+
+// Wind speed → color range (mph)
+const windColorDef: ValueColorRange = {
+  ranges: [
+    { max: 5, color: 'green' },
+    { max: 15, color: 'yellow' },
+    { max: 25, color: 'olive' },
+  ],
+  fallback: 'red',
+};
+
+// Humidity → color range (%)
+const humidityColorDef: ValueColorRange = {
+  ranges: [
+    { max: 30, color: 'olive' },
+    { max: 70, color: 'green' },
+  ],
+  fallback: 'blue',
+};
+
+// Precipitation probability → color range (%)
+const precipColorDef: ValueColorRange = {
+  ranges: [
+    { max: 20, color: 'green' },
+    { max: 50, color: 'yellow' },
+    { max: 80, color: 'olive' },
+  ],
+  fallback: 'red',
+};
+
+
 /**
  * Colorize weather text based on platform and weather metrics
- * @param text Text to colorize
- * @param platform Platform identifier
- * @param temperature Temperature in Fahrenheit (for temperature-based coloring)
- * @param windSpeed Wind speed in mph (for wind-based coloring)
- * @param humidity Humidity percentage (for humidity-based coloring)
- * @param precipitation Precipitation probability percentage (for precipitation-based coloring)
- * @param condition Weather condition (for icon selection)
- * @returns Colorized text with icons if platform is IRC, otherwise original text with icons
  */
 export function colorizeWeather(
   text: string,
@@ -138,17 +89,6 @@ export function colorizeWeather(
   precipitation?: number,
   condition?: string
 ): string {
-  log.debug('colorizeWeather called', {
-    producer: 'weather',
-    text: text,
-    platform: platform,
-    temperature: temperature,
-    windSpeed: windSpeed,
-    humidity: humidity,
-    precipitation: precipitation,
-    condition: condition,
-  });
-
   // Add weather icon if condition is provided
   let resultText = text;
   if (condition) {
@@ -157,80 +97,22 @@ export function colorizeWeather(
   }
 
   // Only apply colorization for IRC platform
-  if (platform === 'irc') {
-    try {
-      log.debug('Applying colorization for IRC', {
-        producer: 'weather',
-        resultText: resultText,
-        temperature: temperature,
-      });
+  if (platform !== 'irc') return resultText;
 
-      let coloredText = resultText;
-
-      // Apply temperature coloring if temperature is provided
-      if (temperature !== undefined) {
-        log.debug('Temperature provided, getting color function', {
-          producer: 'weather',
-          temperature: temperature,
-        });
-        const tempColor = getTemperatureColor(temperature);
-        log.debug('Got tempColor function, applying to text', {
-          producer: 'weather',
-          tempColorType: typeof tempColor,
-        });
-        coloredText = tempColor(coloredText);
-      }
-
-      // Apply wind speed coloring if windSpeed is provided and no temperature (to avoid conflicts)
-      if (windSpeed !== undefined && temperature === undefined) {
-        const windColor = getWindSpeedColor(windSpeed);
-        coloredText = windColor(coloredText);
-      }
-
-      // Apply humidity coloring if humidity is provided and no temperature/wind
-      if (
-        humidity !== undefined &&
-        temperature === undefined &&
-        windSpeed === undefined
-      ) {
-        const humidityColor = getHumidityColor(humidity);
-        coloredText = humidityColor(coloredText);
-      }
-
-      // Apply precipitation coloring if precipitation is provided and no other metrics
-      if (
-        precipitation !== undefined &&
-        temperature === undefined &&
-        windSpeed === undefined &&
-        humidity === undefined
-      ) {
-        const precipColor = getPrecipitationColor(precipitation);
-        coloredText = precipColor(coloredText);
-      }
-
-      log.debug('Successfully colorized weather text for IRC', {
-        producer: 'weather',
-        originalText: resultText,
-        coloredText: coloredText,
-      });
-
-      return coloredText;
-    } catch (error) {
-      log.error('Failed to colorize weather text for IRC', {
-        producer: 'weather',
-        text: resultText,
-        error: error instanceof Error ? error.message : String(error),
-      });
-      return resultText;
-    }
+  // Apply temperature coloring (primary), or fall back to wind/humidity/precip
+  if (temperature !== undefined) {
+    return colorizeByValue(resultText, platform, temperature, tempColorDef);
+  }
+  if (windSpeed !== undefined) {
+    return colorizeByValue(resultText, platform, windSpeed, windColorDef);
+  }
+  if (humidity !== undefined) {
+    return colorizeByValue(resultText, platform, humidity, humidityColorDef);
+  }
+  if (precipitation !== undefined) {
+    return colorizeByValue(resultText, platform, precipitation, precipColorDef);
   }
 
-  log.debug('Returning weather text with icon for non-IRC platform', {
-    producer: 'weather',
-    text: resultText,
-    platform: platform,
-  });
-
-  // Return text with icon for non-IRC platforms
+  // No metric provided — just return with icon
   return resultText;
 }
