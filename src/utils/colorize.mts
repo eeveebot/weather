@@ -1,6 +1,5 @@
 import {
   colorizeByValue,
-  colorizeForPlatform,
   type ValueColorRange,
 } from '@eeveebot/libeevee';
 
