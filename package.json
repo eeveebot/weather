@@ -1,6 +1,6 @@
 {
   "name": "@eeveebot/weather",
-  "version": "1.4.1",
+  "version": "1.4.2",
   "description": "the eevee weather module",
   "keywords": [
     "eevee"
@@ -27,7 +27,7 @@
     "typescript": "^5.9.3"
   },
   "dependencies": {
-    "@eeveebot/libeevee": "^4.0.1",
+    "@eeveebot/libeevee": "^4.0.8",
     "better-sqlite3": "^12.8.0",
     "irc-framework": "^4.14.0",
     "mathjs": "^15.1.1",

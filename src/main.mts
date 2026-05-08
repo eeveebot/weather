@@ -17,7 +17,9 @@ import {
   sendChatMessage,
   registerHelp,
   HelpEntry,
-  registerStatsHandlers
+  registerStatsHandlers,
+  initializeSystemMetrics,
+  setupHttpServer,
 } from '@eeveebot/libeevee';
 import Database from 'better-sqlite3';
 import { fetch } from 'undici';
@@ -42,7 +44,15 @@ interface WeatherConfig {
 const natsClients: InstanceType<typeof NatsClient>[] = [];
 const natsSubscriptions: Array<Promise<string | boolean>> = [];
 
+// Initialize system metrics
+initializeSystemMetrics('weather');
 
+// Setup HTTP server for metrics and health checks
+setupHttpServer({
+  port: process.env.HTTP_API_PORT || '9000',
+  serviceName: 'weather',
+  natsClients: natsClients,
+});
 
 //
 // Do whatever teardown is necessary before calling common handler
