@@ -20,6 +20,7 @@ import {
   registerStatsHandlers,
   initializeSystemMetrics,
   setupHttpServer,
+  NatsSubscriptionResult,
 } from '@eeveebot/libeevee';
 import Database from 'better-sqlite3';
 import { fetch } from 'undici';
@@ -42,7 +43,7 @@ interface WeatherConfig {
 }
 
 const natsClients: InstanceType<typeof NatsClient>[] = [];
-const natsSubscriptions: Array<Promise<string | boolean>> = [];
+const natsSubscriptions: Array<Promise<NatsSubscriptionResult>> = [];
 
 // Initialize system metrics
 initializeSystemMetrics('weather');
