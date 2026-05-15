@@ -1,6 +1,7 @@
 {
   "name": "@eeveebot/weather",
-  "version": "1.4.5",
+  "version": "1.5.0",
+  "type": "module",
   "description": "the eevee weather module",
   "keywords": [
     "eevee"
@@ -16,6 +17,7 @@
     "update-libraries": "npm install --save @eeveebot/libeevee@latest"
   },
   "devDependencies": {
+    "@eslint/eslintrc": "^3.1.0",
     "@types/better-sqlite3": "^7.6.13",
     "@types/node": "^18.19.130",
     "@types/ws": "^8.18.1",
@@ -29,10 +31,6 @@
   "dependencies": {
     "@eeveebot/libeevee": "^4.2.2",
     "better-sqlite3": "^12.8.0",
-    "irc-framework": "^4.14.0",
-    "mathjs": "^15.1.1",
-    "nats": "^2.29.3",
-    "undici": "^7.24.2",
-    "winston": "^3.19.0"
+    "undici": "^7.24.2"
   }
 }
