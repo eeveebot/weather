@@ -141,12 +141,11 @@ export function formatForecastData(
 
         const displayHigh = convertTemp(day.temperatureHigh || 0, units);
         const displayLow = convertTemp(day.temperatureLow || 0, units);
-        const summary = day.summary ? day.summary.replace(/\.$/, '') : '';
         const precipChance = Math.round((day.precipProbability || 0) * 100);
 
-        let result = `${dayName}: ${summary}, High: ${displayHigh}${tu}, Low: ${displayLow}${tu}`;
+        let result = `${dayName} ${displayHigh}/${displayLow}${tu}`;
         if (precipChance > 0) {
-          result += `, ${precipChance}% rain`;
+          result += ` ${precipChance}% rain`;
         }
 
         return colorizeWeather(result, platform, displayHigh, undefined, undefined, precipChance, day.icon);
