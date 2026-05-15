@@ -5,7 +5,6 @@
 
 import {
   NatsClient,
-  log,
   createNatsConnection,
   registerGracefulShutdown,
   createModuleMetrics,
