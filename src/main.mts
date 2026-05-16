@@ -22,8 +22,10 @@ import { WeatherConfig } from './lib/types.mjs';
 import { initDatabase, closeDatabase } from './lib/database.mjs';
 import { handleWeatherCommand } from './commands/weather.mjs';
 import { handleForecastCommand } from './commands/forecast.mjs';
+import fs from 'node:fs';
 
 const moduleStartTime = Date.now();
+const moduleVersion = JSON.parse(fs.readFileSync(new URL('../package.json', import.meta.url), 'utf8')).version as string;
 const metrics = createModuleMetrics('weather');
 
 const weatherCommandUUID = 'd9de0032-5d46-41f9-a09f-33c8da28462c';
@@ -76,7 +78,7 @@ natsSubscriptions.push(handleWeatherCommand({ nats, commandUUID: weatherCommandU
 natsSubscriptions.push(handleForecastCommand({ nats, commandUUID: forecastCommandUUID }));
 
 // Stats
-const statsSubs = registerStatsHandlers({ nats, moduleName: 'weather', startTime: moduleStartTime, metrics });
+const statsSubs = registerStatsHandlers({ nats, moduleName: 'weather', startTime: moduleStartTime, version: moduleVersion, metrics });
 natsSubscriptions.push(...statsSubs);
 
 // Help
