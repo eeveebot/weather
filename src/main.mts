@@ -25,7 +25,7 @@ import { handleForecastCommand } from './commands/forecast.mjs';
 import fs from 'node:fs';
 
 const moduleStartTime = Date.now();
-const moduleVersion = JSON.parse(fs.readFileSync(new URL('../package.json', import.meta.url), 'utf8')).version as string;
+const moduleVersion = JSON.parse(fs.readFileSync(new URL('package.json', 'file://' + process.cwd() + '/'), 'utf8')).version as string;
 const metrics = createModuleMetrics('weather');
 
 const weatherCommandUUID = 'd9de0032-5d46-41f9-a09f-33c8da28462c';
